@@ -42,6 +42,7 @@ type connection struct {
 // Bot depics new bot
 type bot struct {
 	conn            *websocket.Conn
+	url             url.URL
 	nickName        string
 	isOrganizer     bool
 	eventSudbodmain string
@@ -52,9 +53,8 @@ type bot struct {
 
 // New create new bot
 func New(url url.URL, nickName string, isOrganizer bool, subdomain string) bot {
-	conn := connect(url)
 	bot := bot{
-		conn:            conn,
+		url:             url,
 		nickName:        nickName,
 		isOrganizer:     isOrganizer,
 		eventSudbodmain: subdomain,
@@ -64,15 +64,23 @@ func New(url url.URL, nickName string, isOrganizer bool, subdomain string) bot {
 }
 
 // Connect connect with wss servie
-func connect(url url.URL) *websocket.Conn {
-	c, _, err := websocket.DefaultDialer.Dial(url.String(), nil)
+func (b *bot) Connect() {
+	var sleepTime time.Duration
+	sleepTime = time.Duration(rand.Int63n(b.SleepSecondsMax-b.SleepSecondsMin) + b.SleepSecondsMin)
+	time.Sleep(sleepTime * time.Second)
+
+	log.WithFields(log.Fields{
+		"bot": b.nickName,
+	}).Info("connected")
+
+	c, _, err := websocket.DefaultDialer.Dial(b.url.String(), nil)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
 		}).Fatal("connection error")
 	}
 
-	return c
+	b.conn = c
 }
 
 func (b bot) JoinChat() bool {
@@ -146,7 +154,13 @@ func (b bot) Do() {
 	if !b.JoinChat() {
 		return
 	}
-	defer b.Disconnect()
+	defer func() {
+		log.WithFields(log.Fields{
+			"bot": b.nickName,
+		}).Info("disconnecting")
+
+		b.Disconnect()
+	}()
 
 	babbler := babble.NewBabbler()
 	babbler.Separator = " "

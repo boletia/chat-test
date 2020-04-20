@@ -14,7 +14,7 @@ import (
 
 const (
 	numOfMessages   = 10
-	numOfBots       = 10
+	numOfBots       = 50
 	sleepSecondsMin = 5
 	sleepSecondsMax = 10
 )
@@ -27,8 +27,10 @@ func main() {
 		DisableLevelTruncation: true,
 	})
 
-	wg.Add(1)
-	go gossiper(&wg)
+	/*
+		wg.Add(1)
+		go gossiper(&wg)
+	*/
 
 	for i := 1; i <= numOfBots; i++ {
 		wg.Add(1)
@@ -39,9 +41,13 @@ func main() {
 		interrupt := make(chan os.Signal, 1)
 		signal.Notify(interrupt, os.Interrupt)
 
-		log.Infof("signal received, waiting %d secodns to finish\n", 20)
-		time.Sleep(20 * time.Second)
-		os.Exit(0)
+		select {
+		case <-interrupt:
+			log.Infof("signal received, waiting %d secodns to finish\n", 20)
+			time.Sleep(20 * time.Second)
+			os.Exit(0)
+		}
+
 	}()
 
 	wg.Wait()
@@ -51,18 +57,19 @@ func main() {
 func doTest(n int, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	botName := fmt.Sprintf("bot-%d", n)
+
 	url := url.URL{
 		Scheme: "wss",
 		Host:   "6vfdhz6o24.execute-api.us-east-1.amazonaws.com",
 		Path:   "/beta",
 	}
 
-	botName := fmt.Sprintf("bot-%d", n)
-
 	bot := bot.New(url, botName, false, "noisescapes")
 	bot.NumMessages = numOfMessages
 	bot.SleepSecondsMin = sleepSecondsMin
 	bot.SleepSecondsMax = sleepSecondsMax
+	bot.Connect()
 
 	bot.Do()
 }
