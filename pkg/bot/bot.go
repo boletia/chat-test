@@ -46,9 +46,9 @@ type bot struct {
 	nickName        string
 	isOrganizer     bool
 	eventSudbodmain string
-	NumMessages     int64
-	SleepSecondsMin int64
-	SleepSecondsMax int64
+	NumMessages     int
+	SleepSecondsMin int
+	SleepSecondsMax int
 }
 
 // New create new bot
@@ -66,7 +66,7 @@ func New(url url.URL, nickName string, isOrganizer bool, subdomain string) bot {
 // Connect connect with wss servie
 func (b *bot) Connect() {
 	var sleepTime time.Duration
-	sleepTime = time.Duration(rand.Int63n(b.SleepSecondsMax-b.SleepSecondsMin) + b.SleepSecondsMin)
+	sleepTime = time.Duration(rand.Int63n(int64(b.SleepSecondsMax)-int64(b.SleepSecondsMin)) + int64(b.SleepSecondsMin))
 	time.Sleep(sleepTime * time.Second)
 
 	log.WithFields(log.Fields{
@@ -77,7 +77,9 @@ func (b *bot) Connect() {
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
-		}).Fatal("connection error")
+		}).Error("connection error")
+		b.conn = nil
+		return
 	}
 
 	b.conn = c
@@ -151,6 +153,10 @@ func (b bot) Disconnect() {
 }
 
 func (b bot) Do() {
+	if b.conn == nil {
+		return
+	}
+
 	if !b.JoinChat() {
 		return
 	}
@@ -165,9 +171,9 @@ func (b bot) Do() {
 	babbler := babble.NewBabbler()
 	babbler.Separator = " "
 
-	for i := int64(1); i < b.NumMessages; i++ {
+	for i := 1; i < b.NumMessages; i++ {
 		var sleepTime time.Duration
-		sleepTime = time.Duration(rand.Int63n(b.SleepSecondsMax-b.SleepSecondsMin+1) + b.SleepSecondsMin)
+		sleepTime = time.Duration(rand.Int63n(int64(b.SleepSecondsMax)-int64(b.SleepSecondsMin)) + int64(b.SleepSecondsMin))
 
 		msg := fmt.Sprintf("msg %d of %d, latency %d sec : msg %s",
 			i, b.NumMessages,

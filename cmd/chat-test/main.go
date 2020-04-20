@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/url"
 	"os"
@@ -12,7 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
+var (
 	numOfMessages   = 20
 	numOfBots       = 100
 	sleepSecondsMin = 5
@@ -27,21 +28,27 @@ func main() {
 		DisableLevelTruncation: true,
 	})
 
+	numBots := flag.Int("bots", 10, "number of bots")
+	messagessPerBot := flag.Int("messages", 20, "messages per bot")
+	minLatency := flag.Int("min-latency", 5, "min-latency")
+	maxLatency := flag.Int("max-latency", 10, "max-latency")
+	flag.Parse()
+
 	/*
 		wg.Add(1)
 		go gossiper(&wg)
 	*/
 
 	log.WithFields(log.Fields{
-		"numBots":     numOfBots,
-		"msg4bot":     numOfMessages,
-		"min latency": sleepSecondsMin,
-		"max latency": sleepSecondsMax,
+		"numBots":     *numBots,
+		"msg4bot":     *messagessPerBot,
+		"min latency": *minLatency,
+		"max latency": *maxLatency,
 	}).Info("Launching bots")
 
-	for i := 1; i <= numOfBots; i++ {
+	for i := 1; i <= *numBots; i++ {
 		wg.Add(1)
-		go doTest(i, &wg)
+		go doTest(*numBots, *messagessPerBot, *minLatency, *maxLatency, i, &wg)
 	}
 
 	go func() {
@@ -61,7 +68,7 @@ func main() {
 	log.Info("Saliendo")
 }
 
-func doTest(n int, wg *sync.WaitGroup) {
+func doTest(bots int, message int, min int, max int, n int, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	botName := fmt.Sprintf("bot-%d", n)
@@ -73,9 +80,9 @@ func doTest(n int, wg *sync.WaitGroup) {
 	}
 
 	bot := bot.New(url, botName, false, "noisescapes")
-	bot.NumMessages = numOfMessages
-	bot.SleepSecondsMin = sleepSecondsMin
-	bot.SleepSecondsMax = sleepSecondsMax
+	bot.NumMessages = message
+	bot.SleepSecondsMin = min
+	bot.SleepSecondsMax = max
 	bot.Connect()
 
 	bot.Do()
