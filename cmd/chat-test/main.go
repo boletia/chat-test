@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	numOfMessages   = 10
-	numOfBots       = 50
+	numOfMessages   = 20
+	numOfBots       = 100
 	sleepSecondsMin = 5
 	sleepSecondsMax = 10
 )
@@ -31,6 +31,13 @@ func main() {
 		wg.Add(1)
 		go gossiper(&wg)
 	*/
+
+	log.WithFields(log.Fields{
+		"numBots":     numOfBots,
+		"msg4bot":     numOfMessages,
+		"min latency": sleepSecondsMin,
+		"max latency": sleepSecondsMax,
+	}).Info("Launching bots")
 
 	for i := 1; i <= numOfBots; i++ {
 		wg.Add(1)

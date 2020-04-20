@@ -169,7 +169,7 @@ func (b bot) Do() {
 		var sleepTime time.Duration
 		sleepTime = time.Duration(rand.Int63n(b.SleepSecondsMax-b.SleepSecondsMin+1) + b.SleepSecondsMin)
 
-		msg := fmt.Sprintf("%d of %d, speed %d sec : msg %s",
+		msg := fmt.Sprintf("msg %d of %d, latency %d sec : msg %s",
 			i, b.NumMessages,
 			sleepTime,
 			babbler.Babble())
