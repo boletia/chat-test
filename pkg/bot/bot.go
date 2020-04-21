@@ -3,95 +3,132 @@ package bot
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand"
-	"net/url"
 	"time"
 
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
-	"github.com/tjarratt/babble"
 )
 
 const (
+	defaultMinDuraction = 10
+	defaultMaxDuraction = 20
+	defaultNumMessages  = 10
+	defaultSchema       = "wss"
+	defaultHost         = "6vfdhz6o24.execute-api.us-east-1.amazonaws.com"
+	defaultPath         = "/beta"
+	defaultSubDomain    = "noisescapes"
+
 	joinChatAction    = "channelStreamJoinUser"
 	userMessageAction = "channelChatUserOnMessage"
 )
 
-type messageData struct {
-	NickName       string `json:"nickname"`
-	Message        string `json:"message"`
-	EventSubdomain string `json:"event_subdomain"`
-}
-
-type message struct {
-	Action string      `json:"action"`
-	Data   messageData `json:"data"`
-}
-
-type connData struct {
+type channelData struct {
 	EventSubdomain string `json:"event_subdomain"`
 	IsOrganizer    bool   `json:"is_organizer"`
 	NickName       string `json:"nickname"`
 }
-
-type connection struct {
-	Action string   `json:"action"`
-	Data   connData `json:"data"`
+type joinChannel struct {
+	Action string      `json:"action"`
+	Data   channelData `json:"data"`
 }
 
-// Bot depics new bot
+// Config Config for new bot
+type Config struct {
+	NickName    string
+	SudDomain   string
+	NumMessages int
+	MinDelay    int64
+	MaxDelay    int64
+	Host        string
+	Path        string
+	Schema      string
+}
+
 type bot struct {
-	conn            *websocket.Conn
-	url             url.URL
-	nickName        string
-	isOrganizer     bool
-	eventSudbodmain string
-	NumMessages     int
-	SleepSecondsMin int
-	SleepSecondsMax int
+	conn  *websocket.Conn
+	delay time.Duration
+	Config
+	quit chan bool
 }
 
-// New create new bot
-func New(url url.URL, nickName string, isOrganizer bool, subdomain string) bot {
-	bot := bot{
-		url:             url,
-		nickName:        nickName,
-		isOrganizer:     isOrganizer,
-		eventSudbodmain: subdomain,
+// New creates new bot
+func New(conf Config, quit chan bool) bot {
+	return bot{
+		nil,
+		0,
+		conf,
+		quit,
+	}
+}
+
+func (b *bot) SetDelay(min, max int) {
+	b.Config.MinDelay = int64(min)
+	b.Config.MaxDelay = int64(max)
+}
+
+func (b *bot) SetURL(schema, host, path string) {
+	if len(schema) == 0 {
+		schema = defaultSchema
 	}
 
-	return bot
+	if len(host) == 0 {
+		host = defaultHost
+	}
+
+	if len(path) == 0 {
+		path = defaultPath
+	}
+
+	b.Config.Host = host
+	b.Config.Path = path
+	b.Config.Schema = schema
 }
 
-// Connect connect with wss servie
-func (b *bot) Connect() {
-	var sleepTime time.Duration
-	sleepTime = time.Duration(rand.Int63n(int64(b.SleepSecondsMax)-int64(b.SleepSecondsMin)) + int64(b.SleepSecondsMin))
-	time.Sleep(sleepTime * time.Second)
+func (b *bot) SetSubdomain(subDomain string) {
+	if len(subDomain) == 0 {
+		subDomain = defaultSubDomain
+	}
 
-	log.WithFields(log.Fields{
-		"bot": b.nickName,
-	}).Info("connected")
+	b.Config.SudDomain = subDomain
+}
 
-	c, _, err := websocket.DefaultDialer.Dial(b.url.String(), nil)
+func (b *bot) SetNumberOfMessages(n int) {
+	b.Config.NumMessages = n
+}
+
+func (b *bot) SetNickName(name string) {
+	b.Config.NickName = name
+}
+
+func (b *bot) Connec() bool {
+	url := fmt.Sprintf("%s://%s%s", b.Schema, b.Host, b.Path)
+
+	c, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
+			"url":   url,
 		}).Error("connection error")
 		b.conn = nil
-		return
+		return false
 	}
 
+	log.WithFields(log.Fields{
+		"bot": b.Config.NickName,
+	}).Info("connected")
 	b.conn = c
+	time.Sleep(1 * time.Second)
+
+	return true
 }
 
 func (b bot) JoinChat() bool {
-	joinChat := connection{
+	joinChat := joinChannel{
 		Action: joinChatAction,
-		Data: connData{
-			EventSubdomain: b.eventSudbodmain,
-			NickName:       b.nickName,
-			IsOrganizer:    b.isOrganizer,
+		Data: channelData{
+			EventSubdomain: b.Config.SudDomain,
+			NickName:       b.NickName,
+			IsOrganizer:    false,
 		},
 	}
 
@@ -99,7 +136,7 @@ func (b bot) JoinChat() bool {
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
-			"bot":   b.nickName,
+			"bot":   b.NickName,
 		}).Error("joinchat marshal error")
 		return false
 	}
@@ -107,108 +144,8 @@ func (b bot) JoinChat() bool {
 	if err := b.conn.WriteMessage(websocket.TextMessage, msgByte); err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
-			"bot":   b.nickName,
+			"bot":   b.NickName,
 		}).Error("unable to join to chat")
 	}
 	return true
-}
-
-func (b bot) WriteMessage(text string) bool {
-	msg := message{
-		Action: "channelChatUserOnMessage",
-		Data: messageData{
-			NickName:       b.nickName,
-			Message:        text,
-			EventSubdomain: b.eventSudbodmain,
-		},
-	}
-
-	msgByte, err := json.Marshal(msg)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"bot":   b.nickName,
-			"error": err,
-		}).Error("write message marshal error")
-		return false
-	}
-
-	if err := b.conn.WriteMessage(websocket.TextMessage, msgByte); err != nil {
-		log.WithFields(log.Fields{
-			"bot":   b.nickName,
-			"error": err,
-		}).Error("unable to write message to chat")
-		return false
-	}
-
-	return true
-}
-
-func (b bot) Disconnect() {
-	if err := b.conn.Close(); err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-			"bot":   b.nickName,
-		}).Error("unable to call close over socket")
-	}
-}
-
-func (b bot) Do() {
-	if b.conn == nil {
-		return
-	}
-
-	if !b.JoinChat() {
-		return
-	}
-	defer func() {
-		log.WithFields(log.Fields{
-			"bot": b.nickName,
-		}).Info("disconnecting")
-
-		b.Disconnect()
-	}()
-
-	babbler := babble.NewBabbler()
-	babbler.Separator = " "
-
-	for i := 1; i < b.NumMessages; i++ {
-		var sleepTime time.Duration
-		sleepTime = time.Duration(rand.Int63n(int64(b.SleepSecondsMax)-int64(b.SleepSecondsMin)) + int64(b.SleepSecondsMin))
-
-		msg := fmt.Sprintf("msg %d of %d, latency %d sec : msg %s",
-			i, b.NumMessages,
-			sleepTime,
-			babbler.Babble())
-
-		if b.WriteMessage(msg) {
-			log.WithFields(log.Fields{
-				"message": msg,
-				"bot":     b.nickName,
-			}).Info("message written")
-
-			time.Sleep(sleepTime * time.Second)
-		} else {
-			return
-		}
-	}
-
-	b.WriteMessage("bye bye")
-	log.WithFields(log.Fields{
-		"message": "bye bye",
-		"bot":     b.nickName,
-	}).Infof("bye msg written, waiting 5 seconds to end bot")
-	time.Sleep(5 * time.Second)
-}
-
-func (b bot) Listen() {
-
-	for {
-		msgType, msg, err := b.conn.ReadMessage()
-
-		log.WithFields(log.Fields{
-			"error": err,
-			"type":  msgType,
-			"msg":   string(msg),
-		}).Info("message received")
-	}
 }
