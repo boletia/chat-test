@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net/url"
 	"os"
 	"os/signal"
 	"sync"
@@ -13,42 +12,57 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	numOfMessages   = 20
-	numOfBots       = 100
-	sleepSecondsMin = 5
-	sleepSecondsMax = 10
-)
-
-var wg sync.WaitGroup
+const subDomain = "hola"
 
 func main() {
+	var numBots, numMsgs, minLatency, maxLatency int
+	var wg sync.WaitGroup
+
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp:          true,
 		DisableLevelTruncation: true,
 	})
 
-	numBots := flag.Int("bots", 10, "number of bots")
-	messagessPerBot := flag.Int("messages", 20, "messages per bot")
-	minLatency := flag.Int("min-latency", 5, "min-latency")
-	maxLatency := flag.Int("max-latency", 10, "max-latency")
+	flag.IntVar(&numBots, "bots", 1, "bots=<num_bots>")
+	flag.IntVar(&numMsgs, "messages", 2, "messages=<num_of_messaves>")
+	flag.IntVar(&minLatency, "min-latency", 10, "min-latency=<minimous_of_latency>")
+	flag.IntVar(&maxLatency, "max-latency", 20, "max-latency=<minimous_of_latency>")
+
 	flag.Parse()
-
-	/*
-		wg.Add(1)
-		go gossiper(&wg)
-	*/
-
 	log.WithFields(log.Fields{
-		"numBots":     *numBots,
-		"msg4bot":     *messagessPerBot,
-		"min latency": *minLatency,
-		"max latency": *maxLatency,
-	}).Info("Launching bots")
+		"numBots":     numBots,
+		"messages":    numMsgs,
+		"min-latency": minLatency,
+		"max-latency": maxLatency,
+	}).Info("params")
 
-	for i := 1; i <= *numBots; i++ {
+	var quits []interface{}
+
+	quit := make(chan bool)
+	go gossiper(&wg, quit)
+	quits = append(quits, quit)
+
+	for i := 0; i < numBots; i++ {
+		time.Sleep(10 * time.Millisecond)
+
+		log.Infof("launching bot %d", i)
+
+		quit := make(chan bool)
+		conf := bot.Config{
+			NickName:    fmt.Sprintf("bot-%d", i),
+			SudDomain:   "noisescapes",
+			NumMessages: numMsgs,
+			MinDelay:    int64(minLatency),
+			MaxDelay:    int64(maxLatency),
+			Host:        "6vfdhz6o24.execute-api.us-east-1.amazonaws.com",
+			Path:        "/beta",
+			Schema:      "wss",
+		}
+
 		wg.Add(1)
-		go doTest(*numBots, *messagessPerBot, *minLatency, *maxLatency, i, &wg)
+		go launchBot(conf, &wg, quit)
+
+		quits = append(quits, quit)
 	}
 
 	go func() {
@@ -57,53 +71,50 @@ func main() {
 
 		select {
 		case <-interrupt:
-			log.Infof("signal received, waiting %d secodns to finish\n", 20)
-			time.Sleep(20 * time.Second)
-			os.Exit(0)
+			log.Infof("sending quick message to channels")
+			for _, quit := range quits {
+				if tQuite, ok := quit.(chan bool); ok {
+					go func() {
+						tQuite <- true
+					}()
+				}
+			}
 		}
-
 	}()
 
 	wg.Wait()
-	log.Info("Saliendo")
+
+	log.Info("finalizing")
 }
 
-func doTest(bots int, message int, min int, max int, n int, wg *sync.WaitGroup) {
+func launchBot(conf bot.Config, wg *sync.WaitGroup, quit chan bool) {
 	defer wg.Done()
 
-	botName := fmt.Sprintf("bot-%d", n)
+	bot := bot.New(conf, quit)
 
-	url := url.URL{
-		Scheme: "wss",
-		Host:   "6vfdhz6o24.execute-api.us-east-1.amazonaws.com",
-		Path:   "/beta",
+	if bot.Connec() {
+		if bot.JoinChat() {
+			bot.WriteMessages()
+		}
 	}
-
-	bot := bot.New(url, botName, false, "noisescapes")
-	bot.NumMessages = message
-	bot.SleepSecondsMin = min
-	bot.SleepSecondsMax = max
-	bot.Connect()
-
-	bot.Do()
 }
 
-func gossiper(wg *sync.WaitGroup) {
+func gossiper(wg *sync.WaitGroup, quit chan bool) {
 	defer wg.Done()
 
-	url := url.URL{
-		Scheme: "wss",
-		Host:   "6vfdhz6o24.execute-api.us-east-1.amazonaws.com",
-		Path:   "/beta",
+	conf := bot.Config{
+		NickName:  "gossiper",
+		SudDomain: "noisescapes",
+		Host:      "6vfdhz6o24.execute-api.us-east-1.amazonaws.com",
+		Path:      "/beta",
+		Schema:    "wss",
 	}
 
-	botName := "gossiper"
+	bot := bot.New(conf, quit)
 
-	bot := bot.New(url, botName, false, "noisescapes")
-	defer bot.Disconnect()
-
-	if bot.JoinChat() {
-		log.Info("gossiper listening...")
-		bot.Listen()
+	if bot.Connec() {
+		if bot.JoinChat() {
+			bot.ReadMessage()
+		}
 	}
 }
